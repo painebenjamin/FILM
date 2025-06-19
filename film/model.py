@@ -240,7 +240,6 @@ class FILMInterpolator(torch.nn.Module):
 
         return results
 
-    @torch.inference_mode()
     def forward(
         self,
         start: torch.Tensor,
