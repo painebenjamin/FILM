@@ -1,0 +1,11 @@
+[project]
+name = "film"
+version = "0.1.0"
+description = "FILM: Frame Interpolation for Large Motion"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface-hub",
+    "numpy",
+    "torch",
+]
