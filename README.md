@@ -24,5 +24,5 @@ interpolated_4 = interpolator.interpolate((start, end, include_start = True, inc
 
 # Video Examples
 interpolated_v1 = interpolator.interpolate_video(interpolated_4)  # [7, c, h, w]
-interpolated_v2 = interpolator.interpolate_video(interpolated_4, num_frames=2)  # [19, c, h, w]
+interpolated_v2 = interpolator.interpolate_video(interpolated_4, num_frames=2)  # [10, c, h, w]
 ```
