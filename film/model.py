@@ -188,9 +188,7 @@ class FILMInterpolator(torch.nn.Module):
         :param loop: Whether to loop the video.
         :return: A tensor containing the interpolated frames.
         """
-        if len(video.shape) == 3:
-            video = video.unsqueeze(0)
-
+        video = self.prepare_tensor(video)
         b, c, h, w = video.shape
         assert b >= 2, "Video must have at least 2 frames for interpolation."
 
@@ -258,8 +256,8 @@ class FILMInterpolator(torch.nn.Module):
 
         b, c, h, w = start.shape
         assert b == 1, "Batch size must be 1. For videos, use `.interpolate_video()`."
-        padded_start, padding_start = self.pad_image(start)
-        padded_end, padding_end = self.pad_image(end)
+        start, padding_start = self.pad_image(start)
+        end, _ = self.pad_image(end)
 
         indexes = [0, num_frames + 1]
         remains = list(range(1, num_frames + 1))
