@@ -175,6 +175,7 @@ class FILMInterpolator(torch.nn.Module):
 
         return tuple(prepared_tensors)
 
+    @torch.inference_mode()
     def interpolate_video(
         self,
         video: torch.Tensor,
@@ -202,8 +203,8 @@ class FILMInterpolator(torch.nn.Module):
         num_output_frames = b + num_interpolated_frames
         results = torch.zeros(
             (num_output_frames, 3, h, w),
-            dtype=self.dtype,
-            device=video.device,
+            dtype=torch.float32,
+            device="cpu",
         )
 
         iterator = range(b)
@@ -231,6 +232,7 @@ class FILMInterpolator(torch.nn.Module):
                 include_start=True,
                 include_end=True,
             )
+            interpolated_frames = interpolated_frames.float().detach().cpu()
             results[start_i : start_i + num_frames + 2] = interpolated_frames
 
         if loop:
