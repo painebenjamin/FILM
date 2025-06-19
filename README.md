@@ -3,7 +3,7 @@
 ## Installation
 
 ```sh
-pip install film@https://github.com/painebenjamin/FILM.git
+pip install film@git+https://github.com/painebenjamin/FILM.git@main
 ```
 
 ## Usage
