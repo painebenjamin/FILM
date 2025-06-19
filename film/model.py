@@ -175,91 +175,17 @@ class FILMInterpolator(torch.nn.Module):
 
         return tuple(prepared_tensors)
 
-    @torch.inference_mode()
-    def interpolate_video(
-        self,
-        video: torch.Tensor,
-        num_frames: int = 1,
-        loop: bool = False,
-        use_tqdm: bool = False,
-    ) -> torch.Tensor:
-        """
-        Interpolate frames in a video tensor.
-        :param video: The video tensor ([B,C,H,W]).
-        :param num_frames: The number of frames to interpolate.
-        :param loop: Whether to loop the video.
-        :return: A tensor containing the interpolated frames.
-        """
-        video = self.prepare_tensor(video)
-        b, c, h, w = video.shape
-        assert b >= 2, "Video must have at least 2 frames for interpolation."
-
-        num_interpolated_frames = b * num_frames
-        if loop:
-            num_interpolated_frames += 1
-        else:
-            num_interpolated_frames -= num_frames
-
-        num_output_frames = b + num_interpolated_frames
-        results = torch.zeros(
-            (num_output_frames, 3, h, w),
-            dtype=torch.float32,
-            device="cpu",
-        )
-
-        iterator = range(b)
-        if use_tqdm:
-            from tqdm import tqdm
-
-            iterator = tqdm(iterator, desc="Interpolating", unit="frame", total=b - 1)  # type: ignore[assignment]
-
-        for i in iterator:
-            left = video[i]
-            if i == b - 1:
-                if not loop:
-                    break
-                right = video[0]
-            else:
-                right = video[i + 1]
-
-            start_i = i * (num_frames + 1)
-            results[start_i] = left
-
-            interpolated_frames = self.forward(
-                left,
-                right,
-                num_frames=num_frames,
-                include_start=True,
-                include_end=True,
-            )
-            interpolated_frames = interpolated_frames.float().detach().cpu()
-            results[start_i : start_i + num_frames + 2] = interpolated_frames
-
-        if loop:
-            results = results[:-1]
-        else:
-            results[-1] = video[-1]
-
-        return results
-
     def forward(
         self,
         start: torch.Tensor,
         end: torch.Tensor,
         num_frames: int = 1,
-        include_start: bool = False,
-        include_end: bool = False,
     ) -> torch.Tensor:
         """
         Runs the frame interpolation network, returning all frames including
         the start and end frames.
         """
-        start, end = self.prepare_tensors(start, end)
-
         b, c, h, w = start.shape
-        assert b == 1, "Batch size must be 1. For videos, use `.interpolate_video()`."
-        start, padding_start = self.pad_image(start)
-        end, _ = self.pad_image(end)
 
         indexes = [0, num_frames + 1]
         remains = list(range(1, num_frames + 1))
@@ -295,11 +221,118 @@ class FILMInterpolator(torch.nn.Module):
             del remains[step]
 
         result = torch.cat(results, dim=0)
-        result = self.unpad_image(result, padding_start)
-
-        if not include_start:
-            result = result[1:]
-        if not include_end:
-            result = result[:-1]
-
+        result = result[1:-1]  # Exclude the first and last frames
         return result
+
+    @torch.inference_mode()
+    def interpolate_video(
+        self,
+        video: torch.Tensor,
+        num_frames: int = 1,
+        loop: bool = False,
+        use_tqdm: bool = False,
+    ) -> torch.Tensor:
+        """
+        Interpolate frames in a video tensor.
+        :param video: The video tensor ([B,C,H,W]).
+        :param num_frames: The number of frames to interpolate.
+        :param loop: Whether to loop the video.
+        :return: A tensor containing the interpolated frames ([B,C,H,W], fp32, cpu).
+        """
+        video = self.prepare_tensor(video)
+        video, padding = self.pad_image(video)
+        b, c, h, w = video.shape
+        assert b >= 2, "Video must have at least 2 frames for interpolation."
+
+        num_interpolated_frames = b * num_frames
+        if loop:
+            num_interpolated_frames += 1
+        else:
+            num_interpolated_frames -= num_frames
+
+        num_output_frames = b + num_interpolated_frames
+        results = torch.zeros(
+            (num_output_frames, 3, h, w),
+            dtype=torch.float32,
+            device="cpu",
+        )
+
+        iterator = range(b)
+        if use_tqdm:
+            from tqdm import tqdm
+
+            iterator = tqdm(iterator, desc="Interpolating", unit="frame", total=b - 1)  # type: ignore[assignment]
+
+        for i in iterator:
+            left = video[i]
+            if i == b - 1:
+                if not loop:
+                    break
+                right = video[0]
+            else:
+                right = video[i + 1]
+
+            start_i = i * (num_frames + 1)
+            results[start_i] = left
+
+            interpolated_frames = self.forward(
+                left[None],
+                right[None],
+                num_frames=num_frames,
+            )
+            interpolated_frames = interpolated_frames.clamp(0, 1)
+            interpolated_frames = interpolated_frames.float()
+            interpolated_frames = interpolated_frames.detach().cpu()
+
+            results[start_i : start_i + num_frames] = interpolated_frames
+            results[start_i + num_frames] = right
+        if loop:
+            results = results[:-1]
+        else:
+            results[-1] = video[-1]
+
+        results = self.unpad_image(results, padding)
+        return results
+
+    @torch.inference_mode()
+    def interpolate(
+        self,
+        start: torch.Tensor,
+        end: torch.Tensor,
+        num_frames: int = 1,
+        include_start: bool = False,
+        include_end: bool = False,
+    ) -> torch.Tensor:
+        """
+        Interpolate frames between two images.
+        :param start: The starting image tensor ([C,H,W] or [B,C,H,W]).
+        :param end: The ending image tensor ([C,H,W] or [B,C,H,W]).
+        :param num_frames: The number of frames to interpolate between start and end.
+        :param include_start: Whether to include the start frame in the output.
+        :param include_end: Whether to include the end frame in the output.
+        :return: A tensor containing the interpolated frames ([B,C,H,W], fp32, cpu).
+        """
+        start, end = self.prepare_tensors(start, end)
+        start, padding = self.pad_image(start)
+        end, _ = self.pad_image(end)
+
+        interpolated_frames = self.forward(
+            start,
+            end,
+            num_frames=num_frames,
+        )
+
+        return_frames = []
+        if include_start:
+            return_frames.append(start)
+        return_frames.append(interpolated_frames)
+        if include_end:
+            return_frames.append(end)
+
+        frames = torch.cat(return_frames, dim=0)
+        frames = self.unpad_image(frames, padding)
+        frames = frames.clamp(0, 1)
+        frames = frames.float()
+        frames = frames.detach().cpu()
+
+        return frames
