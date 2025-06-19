@@ -13,7 +13,8 @@ Videos must be in the shape `[b, c, h, w]`, and same range as above.
 
 ```py
 from film import FILMInterpolator
-interpolator = FILMInterpolator(device="cuda")  # or torch.device()
+
+interpolator = FILMInterpolator.from_pretrained(device="cuda")  # or torch.device()
 
 # Image Examples
 interpolated_1 = interpolator(start, end)  # [c, h, w] if start is 3-dim, else [1, c, h, w]
