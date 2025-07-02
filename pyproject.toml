@@ -9,3 +9,9 @@ dependencies = [
     "numpy",
     "torch",
 ]
+
+[project.optional-dependencies]
+scene-detection = [
+    "scenedetect",
+    "opencv-python",
+]

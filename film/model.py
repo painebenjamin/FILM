@@ -1,5 +1,8 @@
 # MIT License
 import bisect
+import tempfile
+import os
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -231,18 +234,146 @@ class FILMInterpolator(torch.nn.Module):
         num_frames: int = 1,
         loop: bool = False,
         use_tqdm: bool = False,
+        use_scene_detection: bool = False,
     ) -> torch.Tensor:
         """
         Interpolate frames in a video tensor.
         :param video: The video tensor ([B,C,H,W]).
         :param num_frames: The number of frames to interpolate.
         :param loop: Whether to loop the video.
+        :param use_tqdm: Whether to show progress bar.
+        :param use_scene_detection: Whether to use scene detection to preserve hard cuts.
         :return: A tensor containing the interpolated frames ([B,C,H,W], fp32, cpu).
         """
         video = self.prepare_tensor(video)
         video, padding = self.pad_image(video)
         b, c, h, w = video.shape
         assert b >= 2, "Video must have at least 2 frames for interpolation."
+
+        if use_scene_detection:
+            return self._interpolate_video_with_scene_detection(
+                video, num_frames, loop, use_tqdm, padding
+            )
+        else:
+            return self._interpolate_video_standard(
+                video, num_frames, loop, use_tqdm, padding
+            )
+
+    def _detect_scenes(self, video: torch.Tensor) -> List[Tuple[int, int]]:
+        """
+        Detect scenes in the video using PySceneDetect.
+        :param video: The video tensor ([B,C,H,W]).
+        :return: List of (start_frame, end_frame) tuples for each scene.
+        """
+        try:
+            import cv2
+            from scenedetect import detect, ContentDetector
+        except ImportError:
+            raise ImportError(
+                "PySceneDetect and OpenCV are required for scene detection. "
+                "Install them with: pip install film[scene-detection]"
+            )
+
+        # Convert video tensor to temporary video file for PySceneDetect
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
+            temp_path = temp_file.name
+
+        try:
+            # Convert tensor to video file using OpenCV
+            # Assuming video is in format [B, C, H, W] with values in [0, 1]
+            video_np = (video.detach().cpu().numpy() * 255).astype(np.uint8)
+            video_np = np.transpose(video_np, (0, 2, 3, 1))  # [B, H, W, C]
+            
+            # Get video dimensions
+            height, width = video_np.shape[1:3]
+            fps = 30  # Default fps
+            
+            # Create video writer
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
+            
+            # Write frames
+            for frame in video_np:
+                out.write(frame)
+            out.release()
+            
+            # Use PySceneDetect to detect scenes
+            scenes = detect(temp_path, ContentDetector(threshold=27.0))
+            
+            # Convert to frame indices
+            scene_list = []
+            for scene in scenes:
+                start_frame = int(scene[0].get_frames())
+                end_frame = int(scene[1].get_frames())
+                scene_list.append((start_frame, end_frame))
+            
+            # If no scenes detected or only one scene, return the entire video as one scene
+            if len(scene_list) <= 1:
+                return [(0, video.shape[0] - 1)]
+            
+            return scene_list
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def _interpolate_video_with_scene_detection(
+        self,
+        video: torch.Tensor,
+        num_frames: int,
+        loop: bool,
+        use_tqdm: bool,
+        padding: Tuple[int, int, int, int],
+    ) -> torch.Tensor:
+        """
+        Interpolate video with scene detection to preserve hard cuts.
+        """
+        scenes = self._detect_scenes(video)
+        
+        # If only one scene, use standard interpolation
+        if len(scenes) == 1:
+            return self._interpolate_video_standard(
+                video, num_frames, loop, use_tqdm, padding
+            )
+        
+        # Interpolate each scene separately
+        interpolated_scenes = []
+        total_scenes = len(scenes)
+        
+        iterator = range(total_scenes)
+        if use_tqdm:
+            from tqdm import tqdm
+            iterator = tqdm(iterator, desc="Interpolating scenes", unit="scene")
+        
+        for i, (start_frame, end_frame) in enumerate(iterator):
+            # Extract scene
+            scene_video = video[start_frame:end_frame + 1]
+            
+            # Interpolate this scene
+            interpolated_scene = self._interpolate_video_standard(
+                scene_video, num_frames, False, False, padding
+            )
+            
+            interpolated_scenes.append(interpolated_scene)
+        
+        # Concatenate all scenes without interpolation between them
+        result = torch.cat(interpolated_scenes, dim=0)
+        result = self.unpad_image(result, padding)
+        return result
+
+    def _interpolate_video_standard(
+        self,
+        video: torch.Tensor,
+        num_frames: int,
+        loop: bool,
+        use_tqdm: bool,
+        padding: Tuple[int, int, int, int],
+    ) -> torch.Tensor:
+        """
+        Standard video interpolation without scene detection.
+        """
+        b, c, h, w = video.shape
 
         num_interpolated_frames = b * num_frames
         if loop:
