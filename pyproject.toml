@@ -13,5 +13,5 @@ dependencies = [
 [project.optional-dependencies]
 scene-detection = [
     "scenedetect",
-    "opencv-python",
+    "imageio[ffmpeg]",
 ]
