@@ -278,16 +278,16 @@ class FILMInterpolator(torch.nn.Module):
             )
 
         # Convert video tensor to temporary video file for PySceneDetect
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
-            temp_path = temp_file.name
-            video_np = video.permute(0, 2, 3, 1).cpu().numpy()
-            video_np = (video_np * 255).astype(np.uint8)
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".mp4")
+        os.close(temp_fd)  # Close the file descriptor to avoid locking issues
+        video_np = video.permute(0, 2, 3, 1).cpu().numpy()
+        video_np = (video_np * 255).astype(np.uint8)
 
-            writer = imageio.get_writer(temp_path, fps=16, codec="libx264")
-            for frame in video_np:
-                writer.append_data(frame)
+        writer = imageio.get_writer(temp_path, fps=16, codec="libx264")
+        for frame in video_np:
+            writer.append_data(frame)
 
-            writer.close()
+        writer.close()
 
             if not os.path.exists(temp_path):
                 raise RuntimeError(
