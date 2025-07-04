@@ -289,10 +289,11 @@ class FILMInterpolator(torch.nn.Module):
 
         writer.close()
 
-            if not os.path.exists(temp_path):
-                raise RuntimeError(
-                    "Failed to create temporary video file for scene detection."
-                )
+        if not os.path.exists(temp_path):
+            raise RuntimeError(
+                "Failed to create temporary video file for scene detection."
+            )
+
         try:
 
             # Use PySceneDetect to detect scenes
