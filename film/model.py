@@ -2,7 +2,6 @@
 import bisect
 import os
 import tempfile
-from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -56,12 +55,17 @@ class FILMInterpolator(torch.nn.Module):
             if isinstance(device, str)
             else torch.device(f"cuda:{device}") if isinstance(device, int) else device
         )
-        path = hf_hub_download(
-            repo_id=repo_id,
-            filename=filename,
-            subfolder=subfolder,
-            revision=revision,
-        )
+        if os.path.isfile(repo_id):
+            path = repo_id
+        elif os.path.isdir(repo_id) and os.path.isfile(os.path.join(repo_id, filename)):
+            path = os.path.join(repo_id, filename)
+        else:
+            path = hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                subfolder=subfolder,
+                revision=revision,
+            )
         module = torch.jit.load(path, map_location=device)
         module.eval()
         module.to(device, dtype=torch.float16)
@@ -259,7 +263,7 @@ class FILMInterpolator(torch.nn.Module):
                 video, num_frames, loop, use_tqdm, padding
             )
 
-    def detect_scenes(self, video: torch.Tensor) -> List[Tuple[int, int]]:
+    def detect_scenes(self, video: torch.Tensor) -> list[tuple[int, int]]:
         """
         Detect scenes in the video using PySceneDetect.
         :param video: The video tensor ([B,C,H,W]).
@@ -321,7 +325,7 @@ class FILMInterpolator(torch.nn.Module):
         num_frames: int,
         loop: bool,
         use_tqdm: bool,
-        padding: Tuple[int, int, int, int],
+        padding: tuple[int, int, int, int],
     ) -> torch.Tensor:
         """
         Interpolate video with scene detection to preserve hard cuts.
@@ -378,7 +382,7 @@ class FILMInterpolator(torch.nn.Module):
         num_frames: int,
         loop: bool,
         use_tqdm: bool,
-        padding: Tuple[int, int, int, int],
+        padding: tuple[int, int, int, int],
     ) -> torch.Tensor:
         """
         Standard video interpolation without scene detection.
